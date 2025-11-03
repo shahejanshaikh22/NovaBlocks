@@ -2,111 +2,115 @@
 pragma solidity ^0.8.0;
 
 /**
- * @title NovaBlocks
- * @dev A dynamic NFT system where blocks evolve and gain power over time
+ * @title NovaBlocks Token (NBLOCKS)
+ * @dev Basic ERC20 Token with ownership control
  */
 contract NovaBlocks {
-    struct NovaBlock {
-        uint256 id;
-        uint256 power;
-        uint256 generation;
-        uint256 birthTime;
-        address owner;
-        string color;
-        bool isActive;
+    string public name = "NovaBlocks";
+    string public symbol = "NBLOCKS";
+    uint8 public decimals = 18;
+    uint256 public totalSupply;
+
+    address public owner;
+
+    // Mapping from address to token balances
+    mapping(address => uint256) private balances;
+
+    // Mapping for allowances (owner => spender => amount)
+    mapping(address => mapping(address => uint256)) private allowances;
+
+    // Events
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    // Modifier for owner-only functions
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Caller is not the owner");
+        _;
     }
-    
-    mapping(uint256 => NovaBlock) public blocks;
-    mapping(address => uint256[]) public ownerBlocks;
-    
-    uint256 public nextBlockId = 1;
-    uint256 public constant EVOLUTION_TIME = 7 days;
-    uint256 public constant BASE_POWER = 100;
-    uint256 public constant CREATION_FEE = 0.01 ether;
-    
-    event BlockCreated(uint256 indexed blockId, address indexed owner, uint256 generation);
-    event BlockEvolved(uint256 indexed blockId, uint256 newPower, uint256 newGeneration);
-    event BlockMerged(uint256 indexed block1, uint256 indexed block2, uint256 newBlockId);
-    
-    function createBlock() external payable {
-        require(msg.value >= CREATION_FEE, "Insufficient payment");
-        
-        uint256 blockId = nextBlockId++;
-        string memory color = _generateColor(blockId);
-        
-        blocks[blockId] = NovaBlock({
-            id: blockId,
-            power: BASE_POWER,
-            generation: 1,
-            birthTime: block.timestamp,
-            owner: msg.sender,
-            color: color,
-            isActive: true
-        });
-        
-        ownerBlocks[msg.sender].push(blockId);
-        emit BlockCreated(blockId, msg.sender, 1);
+
+    // Constructor to mint initial supply to deployer
+    constructor(uint256 initialSupply) {
+        owner = msg.sender;
+        totalSupply = initialSupply * 10**decimals;
+        balances[owner] = totalSupply;
+        emit Transfer(address(0), owner, totalSupply);
     }
-    
-    function _generateColor(uint256 blockId) internal view returns (string memory) {
-        uint256 randomNum = uint256(keccak256(abi.encodePacked(block.timestamp, blockId, msg.sender))) % 6;
-        
-        if (randomNum == 0) return "Red";
-        if (randomNum == 1) return "Blue";
-        if (randomNum == 2) return "Green";
-        if (randomNum == 3) return "Purple";
-        if (randomNum == 4) return "Gold";
-        return "Silver";
+
+    // Returns the token balance of an address
+    function balanceOf(address account) public view returns (uint256) {
+        return balances[account];
     }
-    
-    function evolveBlock(uint256 blockId) external {
-        NovaBlock storage nova = blocks[blockId];
-        require(nova.owner == msg.sender, "Not the owner");
-        require(nova.isActive, "Block is inactive");
-        require(block.timestamp >= nova.birthTime + EVOLUTION_TIME, "Evolution time not reached");
-        
-        nova.generation++;
-        nova.power = nova.power + (BASE_POWER * nova.generation / 2);
-        nova.birthTime = block.timestamp;
-        
-        emit BlockEvolved(blockId, nova.power, nova.generation);
+
+    // Transfers tokens to a specific address
+    function transfer(address recipient, uint256 amount) public returns (bool) {
+        require(recipient != address(0), "Transfer to zero address");
+        require(balances[msg.sender] >= amount, "Insufficient balance");
+
+        balances[msg.sender] -= amount;
+        balances[recipient] += amount;
+
+        emit Transfer(msg.sender, recipient, amount);
+        return true;
     }
-    
-    function mergeBlocks(uint256 blockId1, uint256 blockId2) external {
-        require(blocks[blockId1].owner == msg.sender && blocks[blockId2].owner == msg.sender, "Not owner of both blocks");
-        require(blocks[blockId1].isActive && blocks[blockId2].isActive, "Blocks must be active");
-        
-        uint256 newBlockId = nextBlockId++;
-        uint256 combinedPower = blocks[blockId1].power + blocks[blockId2].power;
-        uint256 higherGen = blocks[blockId1].generation > blocks[blockId2].generation ? 
-                            blocks[blockId1].generation : blocks[blockId2].generation;
-        
-        blocks[blockId1].isActive = false;
-        blocks[blockId2].isActive = false;
-        
-        blocks[newBlockId] = NovaBlock({
-            id: newBlockId,
-            power: combinedPower,
-            generation: higherGen + 1,
-            birthTime: block.timestamp,
-            owner: msg.sender,
-            color: blocks[blockId1].color,
-            isActive: true
-        });
-        
-        ownerBlocks[msg.sender].push(newBlockId);
-        emit BlockMerged(blockId1, blockId2, newBlockId);
+
+    // Approves spender to transfer tokens on owner’s behalf
+    function approve(address spender, uint256 amount) public returns (bool) {
+        require(spender != address(0), "Approve to zero address");
+
+        allowances[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
     }
-    
-    function getBlockPower(uint256 blockId) external view returns (uint256) {
-        return blocks[blockId].power;
+
+    // Returns remaining allowance for spender
+    function allowance(address tokenOwner, address spender) public view returns (uint256) {
+        return allowances[tokenOwner][spender];
     }
-    
-    function getOwnerBlocks(address owner) external view returns (uint256[] memory) {
-        return ownerBlocks[owner];
+
+    // Transfers tokens from sender to recipient using allowance mechanism
+    function transferFrom(address sender, address recipient, uint256 amount) public returns (bool) {
+        require(sender != address(0), "Transfer from zero address");
+        require(recipient != address(0), "Transfer to zero address");
+        require(balances[sender] >= amount, "Insufficient balance");
+        require(allowances[sender][msg.sender] >= amount, "Allowance exceeded");
+
+        balances[sender] -= amount;
+        balances[recipient] += amount;
+        allowances[sender][msg.sender] -= amount;
+
+        emit Transfer(sender, recipient, amount);
+        return true;
     }
-    
-    function getMyBlocks() external view returns (uint256[] memory) {
-        return ownerBlocks[msg.sender];
+
+    // Owner can mint tokens to an account
+    function mint(address account, uint256 amount) external onlyOwner {
+        require(account != address(0), "Mint to zero address");
+
+        uint256 mintAmount = amount * 10**decimals;
+        totalSupply += mintAmount;
+        balances[account] += mintAmount;
+
+        emit Transfer(address(0), account, mintAmount);
+    }
+
+    // Owner can burn tokens from an account
+    function burn(address account, uint256 amount) external onlyOwner {
+        require(account != address(0), "Burn from zero address");
+        uint256 burnAmount = amount * 10**decimals;
+        require(balances[account] >= burnAmount, "Burn amount exceeds balance");
+
+        balances[account] -= burnAmount;
+        totalSupply -= burnAmount;
+
+        emit Transfer(account, address(0), burnAmount);
+    }
+
+    // Transfer ownership of the contract
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "New owner is zero address");
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
     }
 }
